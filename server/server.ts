@@ -5,42 +5,26 @@ import bodyParser from 'body-parser';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import db from './models';
-
+import {checkUserExistence, authenticateToken} from './middlewares/auth.middleware'
+import {HOST, PORT, DB} from './config/index'
+import chatRoutes from "./routes/chat.routes";
+import messageRoutes from "./routes/message.routes";
+import {startWebsocketServer} from "./ws-server";
 const app = express();
-const PORT = 3000;
+const expressPORT = 8080;
 
 // Подключение к базе данных
-mongoose.connect('mongodb://localhost:27017/mstu-test');
+mongoose.connect(`mongodb://${HOST}:${PORT}/${DB}`);
 
 app.use(cors());
 app.use(bodyParser.json());
-
-// Middleware для проверки JWT
-const authenticateToken = (req: any, res: any, next: any) => {
-    const token = req.header('Authorization');
-    if (!token) return res.status(401).json({ message: 'Unauthorized' });
-
-    jwt.verify(token, 'your-secret-key', (err: any, user: any) => {
-        if (err) return res.status(403).json({ message: 'Forbidden' });
-        req.user = user;
-        next();
-    });
-};
+app.use((req,res,next) =>{
+    const req_time = new Date(Date.now()).toString();
+    console.log(req.method,req.hostname, req.path, req_time);
+    next();
+});
 
 // Middleware для проверки существования пользователя
-const checkUserExistence = async (req: any, res: any, next: any) => {
-    const { username } = req.body;
-
-    try {
-        const existingUser = await db.user.findOne({ username });
-        if (existingUser) {
-            return res.status(400).json({ message: 'User already exists' });
-        }
-        next();
-    } catch (error) {
-        return res.status(500).json({ message: 'Internal Server Error' });
-    }
-};
 
 // Регистрация пользователя
 app.post('/register', checkUserExistence, async (req, res) => {
@@ -89,11 +73,6 @@ app.post('/login', async (req, res) => {
     }
 });
 
-// Пример защищенного маршрута, требующего JWT
-app.get('/protected', authenticateToken, (req, res) => {
-    res.json({ message: 'Access granted to protected route', user: req.body });
-});
-
 // Добавление супер админа, если в базе данных нет пользователей
 async function addSuperAdmin() {
     const userCount = await db.user.countDocuments();
@@ -117,6 +96,12 @@ async function addSuperAdmin() {
 // Инициализация супер админа
 addSuperAdmin();
 
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+app.use(chatRoutes);
+app.use(messageRoutes);
+
+const server = app.listen(expressPORT, () => {
+
+    console.log(`Server is running on port ${expressPORT}`);
 });
+
+startWebsocketServer(server)
